@@ -1,0 +1,62 @@
+stages:
+  - deploy
+
+deploy_backend:
+  stage: deploy
+  only:
+    - main
+  tags:
+    - fukushi-be
+  script:
+    # Prepare SSH
+    - which ssh-agent || (apt-get update -y && apt-get install openssh-client -y)
+    - eval $(ssh-agent -s)
+    - echo "$VPS_SSH_KEY" > /tmp/deploy_key
+    - chmod 600 /tmp/deploy_key
+    - ssh-add /tmp/deploy_key
+    - mkdir -p ~/.ssh
+    - ssh-keyscan gitlab.co-pro.vn >> ~/.ssh/known_hosts
+
+    # SSH into server and deploy Laravel backend
+    - ssh -o StrictHostKeyChecking=no root@162.43.54.3 '
+      set -e &&
+      export PATH="/opt/.nvm/versions/node/v18.20.4/bin:$PATH" &&
+
+      echo "[BE] Switching to project dir..." &&
+      cd /var/www/fukushi/fukushi-laravel &&
+
+      echo "[BE] Resetting changes..." &&
+      git reset --hard &&
+
+      echo "[BE] Pulling latest code..." &&
+      git pull origin main &&
+
+      echo "[BE] Installing composer dependencies..." &&
+      composer install --no-interaction --prefer-dist --optimize-autoloader &&
+
+      echo "[BE] Running migrations..." &&
+      php artisan migrate --force &&
+      echo "[BE] Seeding database..." &&
+      php artisan db:seed --force &&
+
+
+      echo "[BE] Caching config and routes..." &&
+      php artisan config:clear &&
+      php artisan config:cache &&
+      php artisan route:cache &&
+      php artisan view:cache &&
+
+      echo "[BE] Setting permissions..." &&
+      chown -R www-data:www-data /var/www/fukushi/fukushi-laravel &&
+      chmod -R 755 /var/www/fukushi/fukushi-laravel/storage &&
+      chmod -R 755 /var/www/fukushi/fukushi-laravel/bootstrap/cache &&
+
+      echo "[BE] Restarting services..." &&
+      systemctl reload php8.2-fpm &&
+      systemctl reload nginx &&
+
+      echo "[BE] Restarting queue worker..." &&
+      php artisan queue:restart &&
+
+      echo "[BE] Deployment complete."
+      '

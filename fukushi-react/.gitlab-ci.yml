@@ -1,0 +1,30 @@
+stages:
+    - deploy
+
+deploy_frontend:
+    stage: deploy
+    only:
+        - development
+    tags:
+        - fukushi-fe
+    script:
+        - whoami
+        - which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )
+        - eval $(ssh-agent -s)
+        - echo "$VPS_SSH_KEY" > /tmp/deploy_key
+        - chmod 600 /tmp/deploy_key
+        - ssh-add /tmp/deploy_key
+        - mkdir -p ~/.ssh
+        - ssh-keyscan gitlab.co-pro.vn >> ~/.ssh/known_hosts
+        - export NVM_DIR="/opt/.nvm"
+        - source "$NVM_DIR/nvm.sh"
+        - nvm use 18.20.4
+        - cd /var/www/fukushi-dev/fukushi-react
+        - git config --global --add safe.directory /var/www/fukushi-dev/fukushi-react
+        - git reset --hard origin/main
+        - git pull origin main
+        - rm -rf node_modules .next package-lock.json
+        - npm install
+        - npm run build
+        - export PATH="/root/.nvm/versions/node/v18.20.4/bin:$PATH"
+        - pm2 restart fukushi-fe || pm2 start npm --name "fukushi-fe" -- start
